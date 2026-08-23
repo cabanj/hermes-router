@@ -1,0 +1,125 @@
+model_list:
+  # ---------- free-fast ----------
+  - model_name: free-fast
+    litellm_params:
+      model: openai/nemotron-3.5-lightning-free
+      api_base: https://opencode.ai/zen/v1
+      api_key: os.environ/OPENCODE_FREE_API_KEY   # dummy; Free tier rejects real keys
+      timeout: 60
+      num_retries: 1
+  - model_name: free-fast
+    litellm_params:
+      model: openai/stepfun/step-3.7-flash
+      api_base: https://inference-api.nousresearch.com/v1
+      api_key: os.environ/NOUS_PORTAL_API_KEY
+      timeout: 60
+      num_retries: 1
+  - model_name: free-fast
+    litellm_params:
+      model: openai/nvidia/nemotron-3.5-lightning:free
+      api_base: https://openrouter.ai/api/v1
+      api_key: os.environ/OPENROUTER_API_KEY
+      timeout: 60
+      num_retries: 1
+
+  # ---------- free-general ----------
+  - model_name: free-general
+    litellm_params:
+      model: openai/stealth/ox-alpha
+      api_base: https://inference-api.nousresearch.com/v1
+      api_key: os.environ/NOUS_PORTAL_API_KEY
+      timeout: 120
+      num_retries: 1
+  - model_name: free-general
+    litellm_params:
+      model: openai/z-ai/glm-5.2:free
+      api_base: https://openrouter.ai/api/v1
+      api_key: os.environ/OPENROUTER_API_KEY
+      timeout: 120
+      num_retries: 1
+  - model_name: free-general
+    litellm_params:
+      model: openai/nvidia/nemotron-3-ultra-550b-a55b:free
+      api_base: https://openrouter.ai/api/v1
+      api_key: os.environ/OPENROUTER_API_KEY
+      timeout: 120
+      num_retries: 1
+  - model_name: free-general
+    litellm_params:
+      model: openai/meituan/longcat-2.0:free
+      api_base: https://inference-api.nousresearch.com/v1
+      api_key: os.environ/NOUS_PORTAL_API_KEY
+      timeout: 120
+      num_retries: 1
+
+  # ---------- free-coding ----------
+  - model_name: free-coding
+    litellm_params:
+      model: openai/laguna-s-2.1-free
+      api_base: https://opencode.ai/zen/v1
+      api_key: os.environ/OPENCODE_FREE_API_KEY   # dummy; Free tier rejects real keys
+      timeout: 180
+      num_retries: 1
+  - model_name: free-coding
+    litellm_params:
+      model: openai/mimo-v2.5-free
+      api_base: https://opencode.ai/zen/v1
+      api_key: os.environ/OPENCODE_FREE_API_KEY
+      timeout: 180
+      num_retries: 1
+  - model_name: free-coding
+    litellm_params:
+      model: openai/poolside/laguna-s-2.1:free
+      api_base: https://openrouter.ai/api/v1
+      api_key: os.environ/OPENROUTER_API_KEY
+      timeout: 180
+      num_retries: 1
+
+  # ---------- free-fallback ----------
+  - model_name: free-fallback
+    litellm_params:
+      model: openai/hy3-free
+      api_base: https://opencode.ai/zen/v1
+      api_key: os.environ/OPENCODE_FREE_API_KEY
+      timeout: 120
+      num_retries: 1
+  - model_name: free-fallback
+    litellm_params:
+      model: openai/big-pickle
+      api_base: https://opencode.ai/zen/v1
+      api_key: os.environ/OPENCODE_FREE_API_KEY
+      timeout: 120
+      num_retries: 1
+  - model_name: free-fallback
+    litellm_params:
+      model: openai/tencent/hy3:free
+      api_base: https://inference-api.nousresearch.com/v1
+      api_key: os.environ/NOUS_PORTAL_API_KEY
+      timeout: 120
+      num_retries: 1
+
+litellm_settings:
+  # Fallback chain per alias (order = priority)
+  fallbacks:
+    - free-fast: ["free-fast", "free-fast", "free-fast"]   # same-name entries = next deployment in list order
+    - free-general: ["free-general", "free-general", "free-general"]
+    - free-coding: ["free-coding", "free-coding"]
+    - free-fallback: ["free-fallback", "free-fallback"]
+  respect_retry_after_header: true
+  drop_params: true
+  request_timeout: 180
+
+general_settings:
+  master_key: os.environ/ROUTER_API_KEY
+
+router_settings:
+  routing_strategy: simple-shuffle   # first healthy deployment wins; retries move down the list
+  num_retries: 2
+  retry_policy:
+    "429": [429]
+    "500": [500, 502, 503, 504]
+
+# Whitelist enforcement: only models declared above are routable.
+# Unknown model names -> 400 by LiteLLM default (no auto-routing to other models).
+
+logging: verbose

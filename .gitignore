@@ -1,0 +1,8 @@
+# Secrets — never commit
+.env
+.router-key
+*.key
+
+# Local junk
+__pycache__/
+*.log
