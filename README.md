@@ -6,7 +6,7 @@ dla Hermesa, z fallbackiem między trzema darmowymi providerami.
 ## Architektura
 
 ```
-Hermes ──HTTPS──▶ nginx :443 (135-125-233-237.sslip.io)
+Hermes ──HTTPS──▶ nginx :443 (<YOUR_HOST>.sslip.io)
                     │  Bearer ROUTER_API_KEY + rate limit 10 r/m
                     ▼
         LiteLLM (Docker, 127.0.0.1:4000)
@@ -44,7 +44,7 @@ docker compose up -d              # start / restart po zmianach
 docker compose restart litellm    # sam restart
 docker compose logs -f litellm    # logi (bez treści promptów; sekrety nie są logowane)
 docker compose pull && docker compose up -d   # aktualizacja obrazu
-curl -s https://135-125-233-237.sslip.io/health/liveliness   # health
+curl -s https://<YOUR_HOST>.sslip.io/health/liveliness   # health
 ```
 
 ## Sprawdzenie użycia providera/modelu
@@ -64,7 +64,7 @@ Zasada: **tylko modele price==0** — nowy model musi być zweryfikowany jako da
 ```yaml
 model:
   provider: custom
-  base_url: 'https://135-125-233-237.sslip.io/v1'
+  base_url: 'https://<YOUR_HOST>.sslip.io/v1'
   default: free-general        # | free-fast | free-coding | free-fallback
   api_key_env: ROUTER_API_KEY  # klucz z .env Hermesa; NIE klucze providerów!
 ```
