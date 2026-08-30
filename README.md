@@ -29,6 +29,8 @@ Aktualne zasady (sierpień 2026):
 - **OpenRouter Free** ma ~20 req/min wspólnego limitu — jest fallbackiem, nie primary.
 - Modele stealth mogą zniknąć bez zapowiedzi — dlatego każdy alias ma 3-5 fallbacków.
 - Rate limit: nginx 10 req/min per IP (zone w `/etc/nginx/conf.d/router-limit.conf`).
+- **Wiki model-wiki** jest serwowane pod `https://<YOUR_HOST>.sslip.io/wiki/` (proxy
+  do `/var/www/model-wiki/`) — m.in. strona changelogu routera łańcuchów.
 
 ## Auto-audit łańcuchów (codziennie 06:00 UTC)
 
