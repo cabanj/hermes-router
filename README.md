@@ -13,28 +13,43 @@ Hermes ──HTTPS──▶ nginx :443 (<YOUR_HOST>.sslip.io)
           aliasy: free-fast / free-general / free-coding / free-fallback
                     │
      ┌──────────────┼───────────────────┐
- Nous Portal   OpenRouter        OpenCode Free (keyless)
+ Nous Portal   OpenRouter        OpenCode Zen
 ```
 
-## Providery i modele (whitelist, wszystkie price==0)
+## Providery i modele
 
-| Alias | Kolejność fallback |
-|---|---|
-| free-fast | nemotron-3.5-lightning-free (OpenCode) → step-3.7-flash (Nous) → nemotron-3.5-lightning:free (OR) |
-| free-general | stealth/ox-alpha (Nous) → z-ai/glm-5.2:free (OR) → nemotron-3-ultra:free (OR) → meituan/longcat-2.0:free (Nous) |
-| free-coding | laguna-s-2.1-free (OpenCode) → mimo-v2.5-free (OpenCode) → poolside/laguna-s-2.1:free (OR) |
-| free-fallback | hy3-free (OpenCode) → big-pickle (OpenCode) → tencent/hy3:free (Nous) |
+Łańcuchy aliasów nie są tu ręcznie utrzymywane — patrz
+**„Auto-audit łańcuchów"** niżej oraz aktualny stan na
+`http://<YOUR_HOST>:8080/comparisons-router-changelog.html`.
 
-Uwaga: OpenCode Free **odrzuca prawdziwe klucze** — LiteLLM wysyła dummy
-`OPENCODE_FREE_API_KEY=dummy-keyless`. Nous Portal wymaga sufiksu `:free`
-w ID modeli. Modele stealth (ox-alpha, big-pickle,
-x-preview-f) mogą zniknąć bez zapowiedzi — dlatego każdy alias ma fallbacki.
-Rate limit: nginx 10 req/min per IP (zone w `/etc/nginx/conf.d/router-limit.conf`).
+Aktualne zasady (sierpień 2026):
+- **OpenCode Zen wymaga teraz prawdziwego klucza API** (`OPENCODE_FREE_API_KEY`).
+  Wcześniej był keyless (`dummy-keyless`) — to już nie działa (401 AuthError).
+- **Nous Portal** wymaga sufiksu `:free` w ID modeli; bez niego idzie na billing.
+- **OpenRouter Free** ma ~20 req/min wspólnego limitu — jest fallbackiem, nie primary.
+- Modele stealth mogą zniknąć bez zapowiedzi — dlatego każdy alias ma 3-5 fallbacków.
+- Rate limit: nginx 10 req/min per IP (zone w `/etc/nginx/conf.d/router-limit.conf`).
+
+## Auto-audit łańcuchów (codziennie 06:00 UTC)
+
+`/opt/hermes-router/scripts/router_audit.py` (via cron `0600-utc-daily-router-audit.sh`):
+1. **Fetch** — free modele (price==0) z OpenRouter, Nous Portal i OpenCode Zen
+   (ceny są stringami — konwersja na float; image-only modele wykluczone).
+2. **Ranking** — cross-referencja źródeł + context length + priorytet providera +
+   kategoria (coding / fast / general). Czarne listy: GLM-5.2 (429), Inkling (403),
+   Step-3.7-flash (płatny), Hy3 (nigdzie nie jest free), Lyria (obraz).
+3. **Diff** vs obecny `config.yaml`.
+4. **Apply** — backup do `configs/<timestamp>/`, zapis, restart, health-check,
+   smoke-test **wszystkich 4 aliasów** przez router, rollback przy porażce.
+5. **Changelog** — `data/changelog.json` (ostatnie 30 wpisów) → strona wiki.
+
+Ręcznie: `python3 /opt/hermes-router/scripts/router_audit.py --dry-run` (podgląd)
+lub `--apply` (wdróż). Test pojedynczego modelu: `scripts/smoke_test.py <id>`.
 
 ## Konfiguracja
 
 Sekrety w `.env` (chmod 600, nigdy w git/logach). Wzorzec: `.env.example`.
-Definicje modeli/aliasów/fallbacków: `config.yaml`.
+Definicje modeli/aliasów/fallbacków: `config.yaml` (generowany przez audyt).
 
 ## Operacje
 
@@ -54,23 +69,21 @@ fallbacki i błędy 429/5xx. `docker compose logs litellm | grep free-general`.
 
 ## Dodanie providera / zmiana modelu
 
-1. Dodaj wpis w `config.yaml` (`model_list`) z `api_base` + `api_key` env.
+1. Dodaj wpis w `config.yaml` (`model_list`) z `api_base` + `api_key` env,
+   albo w `scripts/router_audit.py` (np. do czarnej listy / mapy źródło→klucz).
 2. Dopisz env do `.env` (+ `.env.example` bez wartości).
 3. `docker compose up -d`.
 Zasada: **tylko modele price==0** — nowy model musi być zweryfikowany jako darmowy.
 
 ## Konfiguracja Hermesa
 
-```yaml
-model:
-  provider: custom
-  base_url: 'https://<YOUR_HOST>.sslip.io/v1'
-  default: free-general        # | free-fast | free-coding | free-fallback
-  api_key_env: ROUTER_API_KEY  # klucz z .env Hermesa; NIE klucze providerów!
+```bash
+# named provider 'router' (NIE 'custom') — Desktop picker wtedy widzi 4 aliasy
+hermes config set model.default free-general
+hermes config set model.provider router
+# providers.router w config.yaml Hermesa: api+key_env+discover_models:false
+#   + models: {free-general, free-fast, free-coding, free-fallback} z context_length
 ```
-(ustawione przez `hermes config set model.provider/base_url/default/api_key_env`)
 
-## Płatne modele później
-
-Wystarczy dopisać wpisy w `config.yaml` + klucze do `.env`. Hermes dalej
-widzi te same aliasy — zero zmian po stronie klienta.
+Uwaga: wybór modelu w Desktop UI nadpisuje sekcję `model:` w config.yaml Hermesa
+(pomija router). Przywrócenie: dwie komendy `hermes config set` powyżej.
