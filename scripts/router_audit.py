@@ -39,6 +39,9 @@ KNOWN_BROKEN_IDS = frozenset({
     "z-ai/glm-5.2:free", "z-ai/glm-5.2",
     "thinking-machines/inkling:free", "thinking-machines/inkling",
     "thinking-machines/inkling-small:free",
+    # OpenRouter spells provider without hyphen: thinkingmachines
+    "thinkingmachines/inkling:free", "thinkingmachines/inkling",
+    "thinkingmachines/inkling-small:free", "thinkingmachines/inkling-small",
     "stepfun/step-3.7-flash", "stepfun/step-3.7-flash:free",
     "tencent/hy3:free", "tencent/hy3", "hy3-free",  # not free anywhere (Nous=400, Zen=unsupported, OR=paywall)
     # Image-only models (don't fit text-only router)
@@ -47,9 +50,18 @@ KNOWN_BROKEN_IDS = frozenset({
 
 
 def _is_known_broken(model_id):
-    """Check if a model ID is in the known-broken set (case-insensitive)."""
-    mid = model_id.lower().strip()
-    return mid in KNOWN_BROKEN_IDS or mid.replace(":free", "") in KNOWN_BROKEN_IDS
+    """Check if a model ID is in the known-broken set (case-insensitive,
+    tolerant of missing/extra hyphens in the provider slug)."""
+    def norm(s):
+        s = s.lower().strip()
+        base = s.replace(":free", "").replace("-free", "")
+        # also compare with hyphens stripped entirely (provider spelling varies)
+        return base, base.replace("-", "")
+
+    mid, mid_flat = norm(model_id)
+    known = {norm(x)[0] for x in KNOWN_BROKEN_IDS}
+    known_flat = {norm(x)[1] for x in KNOWN_BROKEN_IDS}
+    return mid in known or mid_flat in known_flat or mid in KNOWN_BROKEN_IDS
 
 
 # OpenCode Zen ID -> OpenRouter equivalent (kept as reference; Zen now works
