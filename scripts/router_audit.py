@@ -83,7 +83,7 @@ ALIAS_CATEGORIES = {
     "free-general": "general",
     "free-fast": "fast",
     "free-coding": "coding",
-    "free-fallback": "general",
+    "free-fallback": "reliable",
 }
 
 
@@ -350,6 +350,8 @@ def rank_models(models, category, top_n=5):
     if category == "general":
         # general: include all models not classified as fast/coding-specific
         candidates = [m for m in models if classify_category(m) not in ("fast", "coding")]
+    elif category == "reliable":
+        candidates = models
     else:
         # fast/coding: only models matching the category
         candidates = [m for m in models if classify_category(m) == category]
