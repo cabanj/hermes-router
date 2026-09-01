@@ -649,7 +649,6 @@ def main():
 
     if args.dry_run:
         log("  DRY-RUN. Run with --apply to deploy.")
-        write_changelog(changes, statuses)
         log("AUDIT COMPLETE (dry-run)")
         return 0
 
