@@ -44,6 +44,7 @@ KNOWN_BROKEN_IDS = frozenset({
     "thinkingmachines/inkling-small:free", "thinkingmachines/inkling-small",
     "stepfun/step-3.7-flash", "stepfun/step-3.7-flash:free",
     "tencent/hy3:free", "tencent/hy3", "hy3-free",  # not free anywhere (Nous=400, Zen=unsupported, OR=paywall)
+    "upstage/solar-pro4:free", "upstage/solar-pro4",  # Nous: listed but returns 400 "missing tags"
     # Image-only models (don't fit text-only router)
     "google/lyria-3-clip-preview", "google/lyria-3-pro-preview",
 })
@@ -178,15 +179,27 @@ def _fetch_source(url, timeout=30):
         return None, str(e)
 
 
+def _normalize_model_id(raw_id):
+    """Strip :free suffix and other cosmetic differences so models from different
+    sources dedup correctly. OpenRouter: 'upstage/solar-pro4', Nous: 'upstage/solar-pro4:free'."""
+    mid = raw_id.strip()
+    for suffix in (":free", "-free"):
+        if mid.endswith(suffix):
+            mid = mid[: -len(suffix)]
+    return mid
+
+
 def _normalize_model(m, source):
     """Normalize a raw catalog entry to our model dict. Returns None if broken."""
-    mid = m.get("id", "")
+    raw_id = m.get("id", "")
+    mid = _normalize_model_id(raw_id)
     if _is_known_broken(mid):
         return None
     arch = m.get("architecture") or {}
     ctx = (m.get("top_provider") or {}).get("context_length") or m.get("context_length", 0)
     return {
         "id": mid,
+        "raw_ids": {raw_id},
         "name": m.get("name", mid),
         "description": (m.get("description") or "")[:200],
         "context_length": int(ctx or 0),
@@ -283,14 +296,16 @@ def fetch_all():
         log(f"  {name}: {len(models)} models" + (f" (ERR: {err})" if err else ""))
         all_models.extend(models)
 
-    # Merge by normalized ID
+    # Merge by normalized ID (strip :free/-free suffix for dedup)
     merged = {}
     for m in all_models:
-        key = m["id"].lower().replace(":free", "").replace("-free", "")
+        key = _normalize_model_id(m["id"])
+        raw_ids = set(m.get("raw_ids", set())) | {m.get("id", key)}
         if key not in merged:
-            merged[key] = {**m, "sources": [m["source"]]}
+            merged[key] = {**m, "id": key, "sources": [m["source"]], "raw_ids": raw_ids}
         else:
             merged[key]["sources"].append(m["source"])
+            merged[key]["raw_ids"] |= raw_ids
             if m["context_length"] > merged[key]["context_length"]:
                 merged[key]["context_length"] = m["context_length"]
             if not merged[key]["description"] and m["description"]:
@@ -396,7 +411,16 @@ def build_new_chains(models):
             # Pick best source for this model
             best_source = min(m.get("sources", ["openrouter"]),
                               key=lambda s: source_priority.get(s, 9))
-            model_id = m["id"]
+            # Pick the right model ID format for the chosen source
+            raw_ids = sorted(m.get("raw_ids", set()))
+            if best_source == "openrouter":
+                # OpenRouter uses IDs without :free suffix — prefer those
+                model_id = next((r for r in raw_ids if ":free" not in r and "-free" not in r), m["id"])
+            elif best_source == "nous":
+                # Nous uses IDs with :free suffix — prefer those
+                model_id = next((r for r in raw_ids if ":free" in r or "-free" in r), m["id"] + ":free")
+            else:
+                model_id = m["id"]
             chains[alias].append({
                 "id": model_id,
                 "score": score,
