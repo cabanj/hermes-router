@@ -263,6 +263,7 @@ def fetch_opencode_zen():
     zen_ids = [
         "x-preview-f-free", "mimo-v2.5-free", "nemotron-3-ultra-free",
         "nemotron-3.5-lightning-free", "muse-spark-1.2-contributor-free",
+        "muse-spark-1.3-contributor-free",
     ]
     data, err = _fetch_source("https://opencode.ai/zen/v1/models")
     if err or data is None:
