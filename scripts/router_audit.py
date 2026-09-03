@@ -199,7 +199,7 @@ def _normalize_model(m, source):
     ctx = (m.get("top_provider") or {}).get("context_length") or m.get("context_length", 0)
     return {
         "id": mid,
-        "raw_ids": {raw_id},
+        "raw_by_source": {source: raw_id},
         "name": m.get("name", mid),
         "description": (m.get("description") or "")[:200],
         "context_length": int(ctx or 0),
@@ -296,24 +296,40 @@ def fetch_all():
         log(f"  {name}: {len(models)} models" + (f" (ERR: {err})" if err else ""))
         all_models.extend(models)
 
-    # Merge by normalized ID (strip :free/-free suffix for dedup)
+    # Merge by normalized ID (strip :free/-free suffix for dedup).
+    # raw_by_source keeps the EXACT id each source lists — OpenRouter requires
+    # exact forms (dots-*:free only WITH suffix, longcat only WITHOUT).
+    return merge_models(all_models), statuses
+
+
+def _has_free_suffix(raw_id):
+    return ":free" in raw_id or "-free" in raw_id
+
+
+def merge_models(all_models):
+    """Pure merge: dedup by normalized ID, union sources, keep exact per-source IDs."""
     merged = {}
     for m in all_models:
         key = _normalize_model_id(m["id"])
-        raw_ids = set(m.get("raw_ids", set())) | {m.get("id", key)}
+        src = m.get("source", "openrouter")
+        own = dict(m.get("raw_by_source") or {src: m.get("id", key)})
         if key not in merged:
-            merged[key] = {**m, "id": key, "sources": [m["source"]], "raw_ids": raw_ids}
+            merged[key] = {**m, "id": key, "sources": [m["source"]], "raw_by_source": own}
         else:
             merged[key]["sources"].append(m["source"])
-            merged[key]["raw_ids"] |= raw_ids
+            # Same source, both forms listed (OpenRouter does this): prefer the
+            # bare form — ':free' maps to a rate-limited pool (verified gemma).
+            prev = merged[key]["raw_by_source"].get(src)
+            new = own.get(src)
+            if prev is None or (_has_free_suffix(prev) and new and not _has_free_suffix(new)):
+                merged[key]["raw_by_source"][src] = new
             if m["context_length"] > merged[key]["context_length"]:
                 merged[key]["context_length"] = m["context_length"]
             if not merged[key]["description"] and m["description"]:
                 merged[key]["description"] = m["description"]
             if m["tools"]:
                 merged[key]["tools"] = True
-
-    return list(merged.values()), statuses
+    return list(merged.values())
 
 
 # ---------------------------------------------------------------------------
@@ -356,7 +372,88 @@ def score_model(model, category):
     if model.get("tools"):
         score += 5
 
+    score += bench_bonus(model.get("id", ""), category)
+
     return score
+
+
+# Mirror of model-wiki-automation/bench.py AA_ALIASES (normalized roster id
+# -> exact AA model name). Keep in sync manually; used only for ordering bonus.
+AA_ALIASES = {
+    "z-ai/glm-5.2": "GLM-5.2 (max)",
+    "meituan/longcat-2.0": "LongCat 2.0",
+    "upstage/solar-pro4": "Solar Pro 4",
+    "mimo-v2.5": "MiMo-V2.5",
+    "liquid/lfm-2.5-2.6b": "LFM2 2.6B",
+    "cohere/north-mini-code": "North Mini Code",
+    "google/gemma-4-26b-a4b-it": "Gemma 4 26B A4B (Reasoning)",
+    "google/gemma-4-31b-it": "Gemma 4 31B (Non-reasoning)",
+    "nvidia/nemotron-3-nano-30b-a3b": "NVIDIA Nemotron 3 Nano 30B A3B (Reasoning)",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": "Nemotron 3 Nano Omni 30B A3B Reasoning",
+    "nvidia/nemotron-3-super-120b-a12b": "Nemotron 3 Super 120B A12B (Reasoning)",
+    "nvidia/nemotron-3-ultra-550b-a55b": "Nemotron 3 Ultra 550B A55B (Reasoning)",
+    "nemotron-3-ultra": "Nemotron 3 Ultra 550B A55B (Reasoning)",
+    "nemotron-3.5-lightning": "Nemotron 3.5 Lightning",
+    "nvidia/nemotron-3.5-lightning": "Nemotron 3.5 Lightning",
+    "nvidia/nemotron-nano-12b-v2-vl": "NVIDIA Nemotron Nano 12B v2 VL (Reasoning)",
+    "nvidia/nemotron-nano-9b-v2": "NVIDIA Nemotron Nano 9B V2 (Non-reasoning)",
+    "stepfun/step-3.7-flash": "Step 3.7 Flash",
+    "tencent/hy3": "Hy3",
+    "thinkingmachines/inkling": "Inkling (xhigh)",
+    "thinkingmachines/inkling-small": "Inkling Small",
+    "muse-spark-1.2-contributor": "Muse Spark 1.2 (xhigh)",
+}
+
+# Alias category -> AA benchmark field used for the ordering bonus.
+BENCH_FIELDS = {
+    "general": "artificial_analysis_intelligence_index",
+    "coding": "artificial_analysis_coding_index",
+    "fast": "artificial_analysis_intelligence_index",
+    "reliable": "artificial_analysis_intelligence_index",
+}
+
+_BENCH_CACHE = None
+
+
+def load_bench_scores():
+    """Load {AA name: {intel, coding}} from the wiki benchmarks cache.
+
+    Same host (/opt/model-wiki-automation). Missing file -> {} (bonus 0)."""
+    global _BENCH_CACHE
+    if _BENCH_CACHE is not None:
+        return _BENCH_CACHE
+    _BENCH_CACHE = {}
+    try:
+        with open("/opt/model-wiki-automation/data/benchmarks-cache.json") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return _BENCH_CACHE
+    for a in data.get("data", []):
+        name = a.get("name", "")
+        if name:
+            _BENCH_CACHE[name] = a
+    return _BENCH_CACHE
+
+
+def bench_bonus(model_id, category):
+    """Small ordering bonus from wiki benchmark scores (0 if no data).
+
+    Capped below availability signals: a dead model must still lose to a
+    live one. Blacklisted models never reach here (filtered at fetch)."""
+    field = BENCH_FIELDS.get(category)
+    if not field:
+        return 0
+    aa_name = AA_ALIASES.get(model_id)
+    if not aa_name:
+        return 0
+    entry = load_bench_scores().get(aa_name)
+    if not entry:
+        return 0
+    try:
+        value = float(entry.get(field) or 0)
+    except (TypeError, ValueError):
+        return 0
+    return min(value / 10.0, 7.0)
 
 
 def rank_models(models, category, top_n=5):
@@ -378,6 +475,11 @@ def rank_models(models, category, top_n=5):
     scored = [(score_model(m, category), m) for m in candidates]
     scored.sort(key=lambda x: (-x[0], x[1]["id"]))
     return scored[:top_n]
+
+
+def pick_source_id(model, best_source):
+    """Exact model ID as listed by the winning source (no suffix guessing)."""
+    return model.get("raw_by_source", {}).get(best_source, model["id"])
 
 
 def build_new_chains(models):
@@ -411,16 +513,8 @@ def build_new_chains(models):
             # Pick best source for this model
             best_source = min(m.get("sources", ["openrouter"]),
                               key=lambda s: source_priority.get(s, 9))
-            # Pick the right model ID format for the chosen source
-            raw_ids = sorted(m.get("raw_ids", set()))
-            if best_source == "openrouter":
-                # OpenRouter uses IDs without :free suffix — prefer those
-                model_id = next((r for r in raw_ids if ":free" not in r and "-free" not in r), m["id"])
-            elif best_source == "nous":
-                # Nous uses IDs with :free suffix — prefer those
-                model_id = next((r for r in raw_ids if ":free" in r or "-free" in r), m["id"] + ":free")
-            else:
-                model_id = m["id"]
+            # Exact ID as listed by the winning source (no suffix guessing)
+            model_id = pick_source_id(m, best_source)
             chains[alias].append({
                 "id": model_id,
                 "score": score,
@@ -493,6 +587,15 @@ def generate_config_yaml(chains):
     lines.append("  retry_policy:")
     lines.append('    "429": [429]')
     lines.append('    "500": [500, 502, 503, 504]')
+    lines.append("  allowed_fails: 3")
+    lines.append("  cooldown_time: 60")
+    lines.append("")
+    lines.append("router_settings:")
+    lines.append("  fallbacks:")
+    for alias in ALIAS_ORDER:
+        if alias == "free-fallback":
+            continue
+        lines.append(f"  - {alias}: [free-fallback]")
     lines.append("")
     lines.append("general_settings:")
     lines.append("  health_check_interval: 60")
@@ -564,9 +667,62 @@ def apply_config(new_yaml):
     return True
 
 
+def _upstream_key(env_name):
+    """Read an upstream API key from /opt/hermes-router/.env (never logged)."""
+    try:
+        with open("/opt/hermes-router/.env") as f:
+            for line in f:
+                if line.startswith(env_name + "="):
+                    return line.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    return None
+
+
+def smoke_test_upstream(model_id, api_base, key_env, timeout=60):
+    """Probe one deployment directly at its upstream (bypasses the router).
+    Returns (ok, dead, latency_ms). dead=True only for structural errors
+    (404 / model-not-found / missing tags) — rate limits and flakes are
+    transient (dead=False) and must NOT fail the audit: 429 is exactly
+    what fallback chains are for."""
+    key = _upstream_key(key_env)
+    if not key:
+        return False, False, 0
+    payload = json.dumps({
+        "model": model_id,
+        "messages": [{"role": "user", "content": "Reply with exactly: SMOKE-OK"}],
+        "max_tokens": 300,
+        "temperature": 0,
+    })
+    t0 = time.time()
+    try:
+        r = subprocess.run(
+            ["curl", "-s", "--max-time", str(timeout),
+             f"{api_base}/chat/completions",
+             "-H", f"Authorization: Bearer {key}",
+             "-H", "Content-Type: application/json", "-d", payload],
+            capture_output=True, text=True, timeout=timeout + 10,
+        )
+        lat = int((time.time() - t0) * 1000)
+        data = json.loads(r.stdout)
+        if "choices" in data and data["choices"]:
+            msg = data["choices"][0]["message"]
+            content = ((msg.get("content") or "") + " " + (msg.get("reasoning_content") or ""))
+            return "SMOKE-OK" in content, False, lat
+        err = data.get("error", {})
+        code = err.get("code")
+        msg = str(err.get("message", "")).lower()
+        dead = (code == 404 or "missing tags" in msg
+                or "not found" in msg or "model_not_found" in msg)
+        return False, dead, lat
+    except Exception:
+        return False, False, 0
+
+
 def verify_chains(chains):
-    """Smoke-test each ALIAS through the router (aliases are what clients call)."""
-    log("  verifying chains (via aliases)...")
+    """Verify each alias through the router AND every chain member at its
+    upstream. A dead backup fails the audit (triggers rollback)."""
+    log("  verifying chains (alias + every member upstream)...")
     all_ok = True
     for alias in ALIAS_ORDER:
         models = chains.get(alias, [])
@@ -584,6 +740,25 @@ def verify_chains(chains):
         log(f"    {alias} (primary: {primary}) -> {provider} ({lat}ms) [{status}]")
         if not ok:
             all_ok = False
+        for m in models:
+            env_name = (m.get("api_key") or "").replace("os.environ/", "")
+            u_ok, u_dead, u_lat = smoke_test_upstream(m["id"], m.get("api_base", ""),
+                                                      env_name, timeout=60)
+            if not u_ok and not u_dead:
+                # one retry — upstream rate limits (Zen FreeUsageLimitError)
+                # and transient flakes are common; only a repeat FAIL counts
+                time.sleep(4)
+                u_ok, u_dead, u_lat = smoke_test_upstream(m["id"], m.get("api_base", ""),
+                                                          env_name, timeout=60)
+            if u_ok:
+                u_status = "OK"
+            elif u_dead:
+                u_status = "DEAD"
+            else:
+                u_status = "LIMITED"
+            log(f"      member {m['id']} [{m.get('source')}] ({u_lat}ms) [{u_status}]")
+            if u_dead:
+                all_ok = False
     return all_ok
 
 
