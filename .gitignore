@@ -6,3 +6,7 @@
 # Local junk
 __pycache__/
 *.log
+.pytest_cache/
+
+# Hermes Agent local state (plans, scratch) — machine-specific, not project code
+.hermes/
