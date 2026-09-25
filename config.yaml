@@ -2,28 +2,20 @@ model_list:
   # ---------- free-general (Nous Portal / OpenCode prioritized over OpenRouter) ----------
   - model_name: free-general
     litellm_params:
+      model: openai/stealth/space-bunny-alpha
+      api_base: https://inference-api.nousresearch.com/v1
+      api_key: os.environ/NOUS_PORTAL_API_KEY
+      timeout: 90
+      num_retries: 1
+      tags: ["general", "nous"]
+  - model_name: free-general
+    litellm_params:
       model: openai/meituan/longcat-2.0:free
       api_base: https://inference-api.nousresearch.com/v1
       api_key: os.environ/NOUS_PORTAL_API_KEY
       timeout: 90
       num_retries: 1
       tags: ["general", "nous"]
-  - model_name: free-general
-    litellm_params:
-      model: openai/upstage/solar-pro4:free
-      api_base: https://inference-api.nousresearch.com/v1
-      api_key: os.environ/NOUS_PORTAL_API_KEY
-      timeout: 90
-      num_retries: 1
-      tags: ["general", "nous"]
-  - model_name: free-general
-    litellm_params:
-      model: openai/minimax/minimax-m3:free
-      api_base: https://openrouter.ai/api/v1
-      api_key: os.environ/OPENROUTER_API_KEY
-      timeout: 90
-      num_retries: 1
-      tags: ["general", "openrouter"]
   - model_name: free-general
     litellm_params:
       model: openai/nvidia/nemotron-3-ultra-550b-a55b:free
@@ -34,7 +26,15 @@ model_list:
       tags: ["general", "openrouter"]
   - model_name: free-general
     litellm_params:
-      model: openai/thinkingmachines/inkling-small:free
+      model: openai/google/gemma-4-26b-a4b-it:free
+      api_base: https://openrouter.ai/api/v1
+      api_key: os.environ/OPENROUTER_API_KEY
+      timeout: 90
+      num_retries: 1
+      tags: ["general", "openrouter"]
+  - model_name: free-general
+    litellm_params:
+      model: openai/google/gemma-4-31b-it:free
       api_base: https://openrouter.ai/api/v1
       api_key: os.environ/OPENROUTER_API_KEY
       timeout: 90
@@ -45,6 +45,14 @@ model_list:
   - model_name: free-fast
     litellm_params:
       model: openai/inclusionai/ling-3.0-flash-fin:free
+      api_base: https://inference-api.nousresearch.com/v1
+      api_key: os.environ/NOUS_PORTAL_API_KEY
+      timeout: 90
+      num_retries: 1
+      tags: ["fast", "nous"]
+  - model_name: free-fast
+    litellm_params:
+      model: openai/inclusionai/ling-3.0-flash-sante:free
       api_base: https://inference-api.nousresearch.com/v1
       api_key: os.environ/NOUS_PORTAL_API_KEY
       timeout: 90
@@ -69,14 +77,6 @@ model_list:
   - model_name: free-fast
     litellm_params:
       model: openai/mimo-v2.5-free
-      api_base: https://opencode.ai/zen/v1
-      api_key: os.environ/OPENCODE_FREE_API_KEY
-      timeout: 90
-      num_retries: 1
-      tags: ["fast", "opencode-zen"]
-  - model_name: free-fast
-    litellm_params:
-      model: openai/nemotron-3.5-lightning-free
       api_base: https://opencode.ai/zen/v1
       api_key: os.environ/OPENCODE_FREE_API_KEY
       timeout: 90
@@ -112,6 +112,14 @@ model_list:
   # ---------- free-fallback (reliable last resort) ----------
   - model_name: free-fallback
     litellm_params:
+      model: openai/stealth/space-bunny-alpha
+      api_base: https://inference-api.nousresearch.com/v1
+      api_key: os.environ/NOUS_PORTAL_API_KEY
+      timeout: 90
+      num_retries: 1
+      tags: ["fallback", "nous"]
+  - model_name: free-fallback
+    litellm_params:
       model: openai/meituan/longcat-2.0:free
       api_base: https://inference-api.nousresearch.com/v1
       api_key: os.environ/NOUS_PORTAL_API_KEY
@@ -120,7 +128,7 @@ model_list:
       tags: ["fallback", "nous"]
   - model_name: free-fallback
     litellm_params:
-      model: openai/upstage/solar-pro4:free
+      model: openai/inclusionai/ling-3.0-flash-fin:free
       api_base: https://inference-api.nousresearch.com/v1
       api_key: os.environ/NOUS_PORTAL_API_KEY
       timeout: 90
@@ -128,28 +136,20 @@ model_list:
       tags: ["fallback", "nous"]
   - model_name: free-fallback
     litellm_params:
-      model: openai/minimax/minimax-m3:free
-      api_base: https://openrouter.ai/api/v1
-      api_key: os.environ/OPENROUTER_API_KEY
+      model: openai/inclusionai/ling-3.0-flash-sante:free
+      api_base: https://inference-api.nousresearch.com/v1
+      api_key: os.environ/NOUS_PORTAL_API_KEY
       timeout: 90
       num_retries: 1
-      tags: ["fallback", "openrouter"]
+      tags: ["fallback", "nous"]
   - model_name: free-fallback
     litellm_params:
-      model: openai/nvidia/nemotron-3-ultra-550b-a55b:free
-      api_base: https://openrouter.ai/api/v1
-      api_key: os.environ/OPENROUTER_API_KEY
+      model: openai/poolside/laguna-s-2.1:free
+      api_base: https://inference-api.nousresearch.com/v1
+      api_key: os.environ/NOUS_PORTAL_API_KEY
       timeout: 90
       num_retries: 1
-      tags: ["fallback", "openrouter"]
-  - model_name: free-fallback
-    litellm_params:
-      model: openai/thinkingmachines/inkling-small:free
-      api_base: https://openrouter.ai/api/v1
-      api_key: os.environ/OPENROUTER_API_KEY
-      timeout: 90
-      num_retries: 1
-      tags: ["fallback", "openrouter"]
+      tags: ["fallback", "nous"]
 
 litellm_settings:
   drop_params: true
@@ -158,6 +158,14 @@ litellm_settings:
   retry_policy:
     "429": [429]
     "500": [500, 502, 503, 504]
+  allowed_fails: 3
+  cooldown_time: 60
+
+router_settings:
+  fallbacks:
+  - free-general: [free-fallback]
+  - free-fast: [free-fallback]
+  - free-coding: [free-fallback]
 
 general_settings:
   health_check_interval: 60
