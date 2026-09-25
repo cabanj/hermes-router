@@ -3,8 +3,12 @@
 A free-tier LLM router: LiteLLM behind nginx (HTTPS) exposing one OpenAI-compatible
 endpoint for Hermes, with per-alias fallback chains across three free providers.
 
-- **This repo is the source of truth**; the live instance is deployed to `/opt/hermes-router` on the VPS.
-- Edit here → `git pull` on the VPS → `docker compose up -d`.
+- **This repo is the source of truth for the code.** The live instance lives at
+  `/opt/hermes-router` on the VPS, which is **not** a git checkout — files are
+  copied over manually (`scp`/rsync) and the router is restarted afterwards.
+- `config.yaml` on the VPS is owned by the audit: it is regenerated daily and is
+  expected to drift from the copy here. Treat the VPS copy as the live state and
+  the one in git as a snapshot — don't hand-edit either.
 
 ## Architecture
 
@@ -55,7 +59,9 @@ proof of usability. Stealth models can vanish without notice — hence deep chai
 
 ## Daily auto-audit (06:00 UTC)
 
-`cron/daily-router-audit.sh` → `scripts/router_audit.py` (flock-guarded, one instance only):
+`cron/daily-router-audit.sh` → `scripts/router_audit.py` (flock-guarded, one instance only).
+On the VPS the script is installed as `0600-utc-daily-router-audit.sh` — that is the
+name in `crontab -l`, keep both in sync when renaming:
 
 1. **Fetch** — free models from OpenRouter, Nous Portal, OpenCode Zen; normalize IDs
    (strip `:free`/`-free`) for dedup, keep the exact per-source form for emission;
@@ -80,8 +86,8 @@ Inkling (403), Step-3.7-flash (paid), Hy3 (not free anywhere), Solar-Pro-4
 
 Every chain member is probed at its upstream, and every alias through the router:
 
-- **DEAD** — structural failure only: 404, `missing tags`, `not found` / `model_not_found`. Fails the audit → rollback.
-- **LIMITED** — 429, Zen `FreeUsageLimitError`, transient flakes. One retry, then
+- **DEAD** — structural failure only: 404, `missing tags`, `not found` / `model_not_found`. Fails the audit → rollback. **Re-probed twice before it counts**: upstream 404s are flaky, and a single one once rolled back a full day of changes.
+- **LIMITED** — 429, Zen `FreeUsageLimitError`, transient flakes. Retried once, then
   warn and keep the member: absorbing rate limits is what fallback chains are for.
 - **OK** — `SMOKE-OK` returned in `content` *or* `reasoning_content` (reasoning
   models burn `max_tokens` on thinking first, so probes need a generous `max_tokens`).
@@ -159,7 +165,7 @@ Picking a model in the Desktop UI overwrites the `model:` section of Hermes'
 ## Layout
 
 ```
-config.yaml                 generated model list + retry/fallback policy
+config.yaml                 generated model list + retry/fallback policy (VPS owns it)
 scripts/router_audit.py     fetch → rank → diff → apply → verify → changelog
 scripts/smoke_test.py       single completion probe through the router
 test_router_audit.py        offline unit tests
@@ -167,6 +173,9 @@ cron/daily-router-audit.sh  06:00 UTC entry point (flock)
 docker-compose.yml          litellm on 127.0.0.1:4000, read-only config, env_file
 nginx-router.conf           TLS vhost + /wiki/ static alias
 ```
+
+On the VPS, next to the tracked files: `.env` (secrets), `configs/<timestamp>/`
+(rollback backups), `data/changelog.json`, `cron/audit.log` + `cron/cron.log`.
 
 Related project on the same host: `model-wiki-automation` — the free-model wiki and
 the `benchmarks-cache.json` feeding the audit's ordering bonus. Keep its

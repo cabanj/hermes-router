@@ -13,15 +13,38 @@ from pathlib import Path
 
 ROUTER_URL = "https://135-125-233-237.sslip.io/v1/chat/completions"
 ROUTER_KEY_PATH = "/opt/hermes-router/.router-key"
+ROUTER_ENV_PATH = "/opt/hermes-router/.env"
 TEST_PROMPT = "Reply with exactly: SMOKE-OK"
-MAX_TOKENS = 20
+# Reasoning models (Laguna, nemotron, space-bunny) spend max_tokens on
+# thinking BEFORE writing content — 20 leaves content empty and reads as a dead
+# model. 300 is what router_audit.py uses; keep the two in sync.
+MAX_TOKENS = 300
+
+
+def _router_api_key():
+    """Read the router API key: prefer .router-key, fall back to .env.
+
+    The audit resolves the key the same way. Without the fallback this script
+    always fails on hosts that keep the key only in .env (the VPS has no
+    .router-key)."""
+    try:
+        return Path(ROUTER_KEY_PATH).read_text().strip()
+    except OSError:
+        pass
+    try:
+        with open(ROUTER_ENV_PATH) as f:
+            for line in f:
+                if line.startswith("ROUTER_API_KEY="):
+                    return line.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    return None
 
 
 def smoke_test(model_id, timeout=45):
-    try:
-        key = Path(ROUTER_KEY_PATH).read_text().strip()
-    except OSError as e:
-        return False, None, f"key read: {e}", 0
+    key = _router_api_key()
+    if not key:
+        return False, None, "no router key (.router-key or .env)", 0
 
     payload = json.dumps({
         "model": model_id,
@@ -41,7 +64,11 @@ def smoke_test(model_id, timeout=45):
         latency_ms = int((time.time() - t0) * 1000)
         data = json.loads(r.stdout)
         if "choices" in data and data["choices"]:
-            content = (data["choices"][0]["message"].get("content") or "").strip()
+            msg = data["choices"][0]["message"]
+            # Check BOTH fields: a reasoning model that runs out of tokens mid-thought
+            # leaves content empty but still answers inside reasoning_content.
+            content = ((msg.get("content") or "") + " " +
+                       (msg.get("reasoning_content") or "")).strip()
             provider = data.get("provider", "(unknown)")
             if "SMOKE-OK" in content:
                 return True, provider, None, latency_ms

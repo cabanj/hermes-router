@@ -10,16 +10,16 @@ flock -n 9 || { echo "Another audit already running"; exit 0; }
 cd /opt/hermes-router
 echo "=== Router Audit $(date -u +%Y-%m-%d\ %H:%M:%SZ) ==="
 
-# Dry-run first to show what would change
+# Dry-run first to show what would change. Under `set -e` a non-zero exit here
+# would abort the script before APPLY ever runs, so capture and continue.
 echo "--- DRY RUN ---"
-python3 /opt/hermes-router/scripts/router_audit.py --dry-run
-DRY_EXIT=$?
+DRY_EXIT=0
+python3 /opt/hermes-router/scripts/router_audit.py --dry-run || DRY_EXIT=$?
 
-# Always write changelog entry in dry-run mode too
-# Then auto-apply (safe because verify_chains rolls back on failure)
+# Then auto-apply (safe: verify_chains rolls back on failure)
 echo "--- APPLY ---"
-python3 /opt/hermes-router/scripts/router_audit.py --apply
-APPLY_EXIT=$?
+APPLY_EXIT=0
+python3 /opt/hermes-router/scripts/router_audit.py --apply || APPLY_EXIT=$?
 
-echo "=== Router Audit COMPLETE (apply=$APPLY_EXIT) ==="
+echo "=== Router Audit COMPLETE (dry=$DRY_EXIT apply=$APPLY_EXIT) ==="
 exit $APPLY_EXIT

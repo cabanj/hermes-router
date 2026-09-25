@@ -75,6 +75,10 @@ CATEGORY_KEYWORDS = {
                 "minimax-m3", "minimax-m2", "dots3"],
 }
 
+# Provider preference, best (lowest) first. Single source of truth: used both
+# for ranking (score_model) and for picking the api_base/api_key of a deployment
+# (build_new_chains). Nous Portal leads on rate limits (~60+/min vs OpenRouter's
+# ~20 shared); Zen sits between and needs a real key.
 PROVIDER_PRIORITY = {"nous": 0, "opencode-zen": 1, "openrouter": 2}
 
 ALIAS_ORDER = ["free-general", "free-fast", "free-coding", "free-fallback"]
@@ -117,19 +121,6 @@ def _router_api_key():
     except OSError:
         pass
     return None
-
-
-def _get_json(url, timeout=30):
-    req = urllib.request.Request(url, headers={"User-Agent": "hermes-router-audit/1.0"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read().decode())
-
-
-def _fetch_source(url, timeout=30):
-    try:
-        return _get_json(url, timeout), None
-    except Exception as e:
-        return None, str(e)
 
 
 def smoke_test(model_id, timeout=45):
@@ -207,16 +198,6 @@ def _normalize_model(m, source):
         "tools": "tools" in (m.get("supported_parameters") or []),
         "source": source,
     }
-
-
-def _fetch_source(url, timeout=30):
-    """Fetch JSON. Returns (data, error_str)."""
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "hermes-router-audit/1.0"})
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.loads(r.read().decode()), ""
-    except Exception as e:
-        return None, str(e)
 
 
 def _is_free(pricing):
@@ -500,11 +481,8 @@ def build_new_chains(models):
         },
     }
 
-    # For each model, pick best source.
-    # Priorities: opencode-zen > nous > openrouter.
-    # (Zen requires a real key — OPENCODE_FREE_API_KEY, present in .env.)
-    source_priority = {"opencode-zen": 0, "nous": 1, "openrouter": 2}
-
+    # For each model, pick the best source — same PROVIDER_PRIORITY the ranking
+    # scored with, so a model is served by the provider it was ranked for.
     chains = {}
     for alias in ALIAS_ORDER:
         category = ALIAS_CATEGORIES.get(alias, "general")
@@ -513,7 +491,7 @@ def build_new_chains(models):
         for score, m in ranked:
             # Pick best source for this model
             best_source = min(m.get("sources", ["openrouter"]),
-                              key=lambda s: source_priority.get(s, 9))
+                              key=lambda s: PROVIDER_PRIORITY.get(s, 9))
             # Exact ID as listed by the winning source (no suffix guessing)
             model_id = pick_source_id(m, best_source)
             chains[alias].append({
@@ -543,7 +521,10 @@ def load_current_config():
     for line in content.split("\n"):
         if "model_name:" in line:
             current_alias = line.split("model_name:")[1].strip()
-            chains[current_alias] = []
+            # setdefault, NOT assignment: every deployment repeats model_name:,
+            # so assigning here discarded all but the last member of each chain
+            # and made every diff look like a full rewrite.
+            chains.setdefault(current_alias, [])
         elif "model:" in line and current_alias and "openai/" in line:
             mid = line.split("openai/")[1].strip()
             chains[current_alias].append(mid)
@@ -720,9 +701,16 @@ def smoke_test_upstream(model_id, api_base, key_env, timeout=60):
         return False, False, 0
 
 
-def verify_chains(chains):
+def verify_chains(chains, dead_confirmations=2):
     """Verify each alias through the router AND every chain member at its
-    upstream. A dead backup fails the audit (triggers rollback)."""
+    upstream. A dead backup fails the audit (triggers rollback).
+
+    A structural error must be seen `dead_confirmations` times in a row before
+    it counts. Upstream 404s are flaky: 2026-09-23 a single DEAD from
+    nemotron-3-ultra-550b (which is [OK] today) rolled back a whole day of
+    changes, while the audit log holds 1 DEAD against 73 LIMITED. The retry
+    below re-probes; only a repeat DEAD fails the run.
+    """
     log("  verifying chains (alias + every member upstream)...")
     all_ok = True
     for alias in ALIAS_ORDER:
@@ -745,9 +733,11 @@ def verify_chains(chains):
             env_name = (m.get("api_key") or "").replace("os.environ/", "")
             u_ok, u_dead, u_lat = smoke_test_upstream(m["id"], m.get("api_base", ""),
                                                       env_name, timeout=60)
-            if not u_ok and not u_dead:
-                # one retry — upstream rate limits (Zen FreeUsageLimitError)
-                # and transient flakes are common; only a repeat FAIL counts
+            # Retry anything that isn't a clean OK: rate limits, flakes AND
+            # first-pass structural errors. A DEAD only sticks if it repeats.
+            for attempt in range(1, dead_confirmations):
+                if u_ok:
+                    break
                 time.sleep(4)
                 u_ok, u_dead, u_lat = smoke_test_upstream(m["id"], m.get("api_base", ""),
                                                           env_name, timeout=60)
